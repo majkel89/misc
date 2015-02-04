@@ -22,8 +22,6 @@
 
 namespace org\majkel\GoogleApiAddHints;
 
-require_once 'vendor/autoload.php';
-
 /**
  * Class ClassParser
  *
@@ -338,7 +336,7 @@ class ClassParserModel extends ClassParser {
 				}
 				$oldMethod .= "public\s+function\s+set$Name\s*\(\s*($class\s+)?\\\$$name\s*\)#";
 				$newMethod = "/**\n   * @param $realType \$$name\n   */\n  public function set$Name("
-					. ($realType == $class ? "$class " : '') . "\$$name)";
+						. ($realType == $class ? "$class " : '') . "\$$name)";
 
 				$patterns[] = $oldMethod;
 				$overrides[] = $newMethod;
@@ -837,6 +835,92 @@ class FixHints {
 }
 
 /**
+ * @param \stdClass $obj
+ * @param string $key
+ * @param mixed $default
+ * @return mixed
+ */
+function objGet(\stdClass $obj, $key, $default = null) {
+	$keys = explode('/', $key);
+	$last = array_pop($keys);
+	foreach ($keys as $k) {
+		if (isset($obj->$k) && is_object($obj->$k)) {
+			$obj = $obj->$k;
+		}
+		else {
+			return $default;
+		}
+	}
+	return isset($obj->$last) ? $obj->$last : $default;
+}
+
+/**
+ * Class ComposerParser
+ * @package org\majkel\GoogleApiAddHints
+ */
+class ComposerParser {
+
+	/** @var array */
+	protected $config;
+
+	/** @var string */
+	protected $vendorDir;
+
+	/** @var string */
+	protected $libPath;
+
+	public function __construct() {
+		$this->config = new \stdClass();
+		if (file_exists('composer.json')) {
+			$config = file_get_contents('composer.json');
+			if (is_string($config)) {
+				$config = json_decode($config);
+				if (is_object($config)) {
+					$this->config = $config;
+				}
+			}
+		}
+	}
+
+	/**
+	 * @param string $key
+	 * @param string $default
+	 * @return string
+	 */
+	public function get($key, $default = null) {
+		$result = objGet($this->config, $key, $default);
+		return $result;
+	}
+
+	/**
+	 * @return string
+	 */
+	public function getVendorDir() {
+		if (is_null($this->vendorDir)) {
+			$this->vendorDir = $this->get('config/vendor-dir', 'vendor');
+		}
+		return $this->vendorDir;
+	}
+
+	/**
+	 * @return string
+	 */
+	public function getAutoLoadFile() {
+		return $this->getVendorDir() . '/autoload.php';
+	}
+
+	/**
+	 * @return string
+	 */
+	public function getLibPath() {
+		if (is_null($this->libPath)) {
+			$this->libPath = $this->getVendorDir() . '/google/apiclient';
+		}
+		return $this->libPath;
+	}
+}
+
+/**
  * Class CmdArgs
  *
  * Handles command line arguments
@@ -855,6 +939,9 @@ class CmdArgs {
 
 	/** @var array */
 	protected $options;
+
+	/** @var string */
+	protected $source;
 
 	public function __construct() {
 		$short = implode('', array_keys($this->args));
@@ -887,10 +974,20 @@ class CmdArgs {
 	}
 
 	/**
+	 * @param string $source
+	 */
+	public function setSource($source) {
+		$this->source = $source;
+	}
+
+	/**
 	 * @return string
 	 */
 	public function getSource() {
-		return $this->getArg('s', 'source', '.');
+		if (is_null($this->source)) {
+			$this->source = $this->getArg('s', 'source');
+		}
+		return $this->source;
 	}
 
 	/**
@@ -915,14 +1012,14 @@ class CmdArgs {
 	}
 }
 
-function main()
-{
-	echo "PHP Google Api Client Comment Fixer by majkel v0.1 (2014-01-04)\n";
+function main() {
+	try {
+		echo "PHP Google Api Client Comment Fixer by majkel v0.2 (2015-02-04)\n";
 
-	$cmdArgs = new CmdArgs();
+		$cmdArgs = new CmdArgs();
 
-	if ($cmdArgs->isHelp()) {
-		echo <<<EOF
+		if ($cmdArgs->isHelp()) {
+			echo <<<EOF
 
   This program adds type-hinting comments to Google API Client for PHP.
 
@@ -938,15 +1035,23 @@ function main()
     php GoogleApiAddHints.php --source=vendor/google/apiclient
 
 EOF;
-	}
+		}
 
-	if ($cmdArgs->isVersion() || $cmdArgs->isHelp()) {
-		return 0;
-	}
+		if ($cmdArgs->isVersion() || $cmdArgs->isHelp()) {
+			return 0;
+		}
 
-	$fixHints = new FixHints($cmdArgs->getSource(), $cmdArgs->getOutput());
+		$composer = new ComposerParser();
+		$source = $cmdArgs->getSource();
+		if (is_null($source)) {
+			$source = $composer->getLibPath();
+			echo "\n\tAssumed source path: $source\n";
+			$cmdArgs->setSource($source);
+		}
 
-	echo <<<EOF
+		$fixHints = new FixHints($cmdArgs->getSource(), $cmdArgs->getOutput());
+
+		echo <<<EOF
 
   Source = {$fixHints->getSource()}
   Output = {$fixHints->getOutput()}
@@ -954,9 +1059,16 @@ EOF;
 
 EOF;
 
-	$fixHints->execute();
+		require_once $composer->getAutoLoadFile();
+		unset($composer);
+		$fixHints->execute();
 
-	return 0;
+		return 0;
+	}
+	catch (\Exception $e) {
+		echo "\n\tError: {$e->getMessage()}\n";
+		return -1 * $e->getCode();
+	}
 }
 
 exit(main());
