@@ -31,11 +31,6 @@ use DOMDocument;
 use Exception;
 use DOMElement;
 
-// $from = 7229;
-// $to = 7296;
-$authorsFile = 'C:/Users/majkel/Desktop/SKARB/authors.txt';
-$logFile = 'C:/Users/majkel/Desktop/SKARB/log.xml';
-
 class AbstractException extends Exception {
 }
 
